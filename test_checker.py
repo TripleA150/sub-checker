@@ -3,7 +3,7 @@ import json
 import socket
 import unittest
 
-from checker import endpoint, extract, parse, reachable
+from checker import endpoint, extract, load_whitelist, parse, reachable, whitelisted
 
 UUID = "9a0e84f8-4b58-477f-99da-5fac5a2e58e8"
 
@@ -66,6 +66,24 @@ class TestReachable(unittest.TestCase):
     def test_endpoint(self):
         self.assertEqual(endpoint(parse("trojan://p@h.example:8443?security=tls")), ("h.example", 8443))
         self.assertEqual(endpoint(parse(vmess(tls="tls"))), ("1.2.3.4", 443))
+
+
+class TestWhitelist(unittest.TestCase):
+    REPORT = "country: ru\ntop_subnets:\n- cidr: 77.88.0.0/24\n  count: 99\n- cidr: 2a02:6b8::/32\n  count: 1\n"
+    VERIFIED = "results:\n- ip: 109.120.180.102\n  proto: tcp\n  port: 443\n"
+
+    def test_load(self):
+        nets, ips = load_whitelist(self.REPORT, self.VERIFIED)
+        self.assertEqual([str(n) for n in nets], ["77.88.0.0/24", "2a02:6b8::/32"])
+        self.assertEqual({str(i) for i in ips}, {"109.120.180.102"})
+
+    def test_match(self):
+        nets, ips = load_whitelist(self.REPORT, self.VERIFIED)
+        self.assertTrue(whitelisted("77.88.0.55", nets, ips))  # report subnet
+        self.assertTrue(whitelisted("2a02:6b8::1", nets, ips))
+        self.assertTrue(whitelisted("109.120.180.102", nets, ips))  # verified IP
+        self.assertFalse(whitelisted("109.120.180.103", nets, ips))
+        self.assertFalse(whitelisted("nonexistent.invalid", nets, ips))
 
 
 class TestExtract(unittest.TestCase):

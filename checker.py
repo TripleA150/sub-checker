@@ -3,12 +3,15 @@
 
 Reads files whose lines are subscription URLs or individual keys, keeps only keys
 secured by tls/reality (or security=none with a real encryption method set),
-tests each one through Xray-core several times and writes the working keys out.
+tests each one through Xray-core several times and writes the working keys out,
+plus the subset whose servers are on the Russian whitelist (openlibrecommunity/rewl).
 """
 import argparse
 import base64
+import ipaddress
 import json
 import os
+import re
 import socket
 import subprocess
 import sys
@@ -20,6 +23,7 @@ from urllib.parse import parse_qs, unquote, urlsplit
 
 SCHEMES = ("vless://", "vmess://", "trojan://")
 NO_ENCRYPTION = ("", "none", "zero")
+REWL = "https://raw.githubusercontent.com/openlibrecommunity/rewl/refs/heads/master/data/pub/"
 
 
 def b64(s):
@@ -129,6 +133,22 @@ def reachable(host, port, attempts):
         return False
 
 
+def load_whitelist(report, verified):
+    """Subnets from ru.report.yaml and single IPs from ru.verified.yaml."""
+    # shortcut: regex instead of a YAML parser (stdlib only), fine while the files stay machine-generated
+    return ([ipaddress.ip_network(c, strict=False) for c in re.findall(r"cidr:\s*(\S+)", report)],
+            {ipaddress.ip_address(i) for i in re.findall(r"-\s*ip:\s*(\S+)", verified)})
+
+
+def whitelisted(host, nets, ips):
+    """Report subnets first; if none match, the detailed per-IP verified list."""
+    try:
+        addrs = {ipaddress.ip_address(i[4][0]) for i in socket.getaddrinfo(host, None)}
+    except (OSError, ValueError):  # unresolvable host
+        return False
+    return any(addr in net for addr in addrs for net in nets) or bool(addrs & ips)
+
+
 def check(outbound, port, a):
     """True if a request through the key succeeds in any of a.attempts tries."""
     cfg = {"log": {"loglevel": "none"},
@@ -166,6 +186,7 @@ def main():
     ap.add_argument("--timeout", type=int, default=10, help="seconds per try")
     ap.add_argument("--workers", type=int, default=32)
     ap.add_argument("--url", default="https://www.gstatic.com/generate_204")
+    ap.add_argument("--wl-output", default="valid_wl.txt", help="working keys on whitelisted servers")
     a = ap.parse_args()
 
     links = []
@@ -199,12 +220,24 @@ def main():
 
     with ThreadPoolExecutor(a.workers) as ex:
         results = list(ex.map(lambda i: check(items[i][1], 20000 + i % 40000, a), range(len(items))))
-    valid = [link for (link, _), ok in zip(items, results) if ok]
+    valid = [(link, ob) for (link, ob), ok in zip(items, results) if ok]
     print(f"{len(valid)} keys work", file=sys.stderr)
     if not valid:  # most likely a network outage on our side; keep the previous file
         return 1
     with open(a.output, "w", encoding="utf-8") as f:
-        f.write("\n".join(valid) + "\n")
+        f.write("".join(link + "\n" for link, _ in valid))
+
+    try:
+        nets, ips = load_whitelist(fetch(REWL + "ru.report.yaml"), fetch(REWL + "ru.verified.yaml"))
+    except Exception as e:  # keep the previous valid_wl.txt rather than emptying it
+        print(f"whitelist check skipped: {e}", file=sys.stderr)
+        return 0
+    with ThreadPoolExecutor(a.workers) as ex:  # DNS lookups
+        on_wl = list(ex.map(lambda item: whitelisted(endpoint(item[1])[0], nets, ips), valid))
+    wl = [link for (link, _), ok in zip(valid, on_wl) if ok]
+    print(f"{len(wl)} working keys are on whitelisted servers", file=sys.stderr)
+    with open(a.wl_output, "w", encoding="utf-8") as f:
+        f.write("".join(link + "\n" for link in wl))
     return 0
 
 

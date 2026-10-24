@@ -13,7 +13,13 @@ Every 8 hours a GitHub Actions workflow (`.github/workflows/check.yml`):
    keys whose server answers neither are dropped without starting Xray;
 4. starts Xray-core for each remaining key and requests `https://www.gstatic.com/generate_204` through it,
    up to 3 times (one success counts as working);
-5. commits the working keys to `valid.txt`.
+5. commits the working keys to `valid.txt`;
+6. resolves each working key's host and commits the keys whose server is on the Russian whitelist
+   to `valid_wl.txt`: the IP must fall in a subnet from
+   [`ru.report.yaml`](https://raw.githubusercontent.com/openlibrecommunity/rewl/refs/heads/master/data/pub/ru.report.yaml),
+   or, failing that, be listed in
+   [`ru.verified.yaml`](https://raw.githubusercontent.com/openlibrecommunity/rewl/refs/heads/master/data/pub/ru.verified.yaml).
+   If those files can't be downloaded, the previous `valid_wl.txt` is kept.
 
 If no key works at all (usually a network problem on the runner), `valid.txt` is left as it was
 and the run fails.

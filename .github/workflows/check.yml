@@ -33,5 +33,5 @@ jobs:
         run: |
           git config user.name "TripleA150"
           git config user.email "46062533+TripleA150@users.noreply.github.com"
-          git add valid.txt
+          git add valid*.txt
           git diff --cached --quiet || { git commit -m "Update valid keys" && git push; }
