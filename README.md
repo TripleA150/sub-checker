@@ -5,9 +5,10 @@ Checks Xray-core subscriptions and keeps only working, encrypted keys.
 Every 8 hours a GitHub Actions workflow (`.github/workflows/check.yml`):
 
 1. reads `sources.txt`, which lists subscription URLs and/or individual keys, one per line;
-2. keeps only `vless`/`vmess`/`trojan`/`ss` keys secured by `tls` or `reality`, or with
-   security `none` **and** an encryption method other than `none` explicitly set
-   (VLESS `encryption=`, VMess `scy`, Shadowsocks method); duplicate keys are dropped;
+2. keeps only `vless`/`vmess`/`trojan` keys whose security (`security=`, VMess `tls`) is
+   explicitly `tls` or `reality`, or explicitly `none` **and** an encryption method other than
+   `none` is set (VLESS `encryption=`, VMess `scy`). Keys without a security value, and
+   Shadowsocks keys (which have none), are dropped, as are duplicates;
 3. checks each server once: a TCP connect to its port (up to 3 tries), falling back to ICMP ping;
    keys whose server answers neither are dropped without starting Xray;
 4. starts Xray-core for each remaining key and requests `https://www.gstatic.com/generate_204` through it,

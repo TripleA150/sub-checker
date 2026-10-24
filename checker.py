@@ -18,8 +18,8 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import parse_qs, unquote, urlsplit
 
-SCHEMES = ("vless://", "vmess://", "trojan://", "ss://")
-NO_ENCRYPTION = ("", "none", "zero", "plain")
+SCHEMES = ("vless://", "vmess://", "trojan://")
+NO_ENCRYPTION = ("", "none", "zero")
 
 
 def b64(s):
@@ -87,33 +87,23 @@ def parse(link):
                 {"id": j["id"], "alterId": int(j.get("aid") or 0), "security": q.get("encryption", "auto")}]}]}
         else:
             u = urlsplit(link)
-            if scheme == "ss" and "@" not in u.netloc:  # legacy ss://base64(method:pass@host:port)
-                u = urlsplit("ss://" + b64(unquote(u.netloc)))
             q = {k: v[0] for k, v in parse_qs(u.query).items()}
             address, port = u.hostname, u.port
-            if scheme == "ss":
-                if "plugin" in q:  # SIP003 plugins are not supported by Xray
-                    return None
-                if u.password is not None:
-                    method, password = unquote(u.username), unquote(u.password)
-                else:
-                    method, password = b64(unquote(u.username)).split(":", 1)
-                q = {"security": "none", "encryption": method}
-                settings = {"servers": [{"address": address, "port": port, "method": method, "password": password}]}
-            elif scheme == "trojan":
-                q.setdefault("security", "tls")  # what clients assume for trojan
+            if scheme == "trojan":
                 settings = {"servers": [{"address": address, "port": port, "password": unquote(u.username)}]}
-            else:
+            elif scheme == "vless":
                 settings = {"vnext": [{"address": address, "port": port, "users": [
                     {"id": unquote(u.username), "encryption": q.get("encryption", "none"), "flow": q.get("flow", "")}]}]}
-        q.setdefault("security", "none")
-        if q["security"] not in ("tls", "reality"):
+            else:
+                return None
+        # a key must state its security; a missing value is not read as "none" or "tls"
+        if q.get("security") not in ("tls", "reality"):
             # trojan has no encryption of its own, so without tls it is plaintext
-            if q["security"] != "none" or scheme == "trojan" or q.get("encryption", "") in NO_ENCRYPTION:
+            if q.get("security") != "none" or scheme == "trojan" or q.get("encryption", "") in NO_ENCRYPTION:
                 return None
         if not address or not port:
             return None
-        return {"protocol": "shadowsocks" if scheme == "ss" else scheme, "settings": settings,
+        return {"protocol": scheme, "settings": settings,
                 "streamSettings": stream(q, address)}
     except Exception:
         return None

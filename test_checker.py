@@ -19,25 +19,28 @@ class TestFilter(unittest.TestCase):
             f"vless://{UUID}@h.example:443?security=reality&pbk=key&sid=ab&sni=h.example&type=tcp#name",
             f"vless://{UUID}@h.example:443?security=tls&type=ws&path=%2Fws&host=h.example",
             f"vless://{UUID}@h.example:443?security=none&encryption=mlkem768x25519plus.native.0rtt.key",
-            f"trojan://pass@h.example:443?sni=h.example",  # trojan defaults to tls
+            f"trojan://pass@h.example:443?security=tls&sni=h.example",
             vmess(tls="tls", scy="auto"),
-            vmess(tls="", scy="aes-128-gcm"),
-            "ss://" + base64.b64encode(b"chacha20-ietf-poly1305:pw").decode() + "@1.2.3.4:8388#n",
-            "ss://" + base64.b64encode(b"aes-256-gcm:pw@1.2.3.4:8388").decode(),
+            vmess(tls="none", scy="aes-128-gcm"),
         ]:
             self.assertIsNotNone(parse(link), link)
 
     def test_rejected(self):
         for link in [
             f"vless://{UUID}@h.example:443?encryption=none&type=tcp",
+            # no security at all
+            f"vless://{UUID}@h.example:443?encryption=mlkem768x25519plus.native.0rtt.key",
+            f"vless://{UUID}@h.example:443?pbk=key&sni=h.example&type=tcp",
+            "trojan://pass@h.example:443?sni=h.example",
+            vmess(scy="aes-128-gcm"),
+            vmess(tls="", scy="aes-128-gcm"),
             f"vless://{UUID}@h.example:443?security=none&encryption=none",
             f"vless://{UUID}@h.example:443?security=xtls",
             f"trojan://pass@h.example:443?security=none",
             vmess(tls=""),  # no explicit scy
             vmess(tls="none", scy="none"),
             vmess(tls="", scy="zero"),
-            "ss://" + base64.b64encode(b"none:pw").decode() + "@1.2.3.4:8388",
-            "ss://" + base64.b64encode(b"aes-256-gcm:pw").decode() + "@1.2.3.4:8388?plugin=obfs-local",
+            "ss://" + base64.b64encode(b"aes-256-gcm:pw").decode() + "@1.2.3.4:8388",  # ss has no security field
             "vless://garbage",
         ]:
             self.assertIsNone(parse(link), link)
@@ -61,7 +64,7 @@ class TestReachable(unittest.TestCase):
         self.assertFalse(reachable("nonexistent.invalid", 443, 1))
 
     def test_endpoint(self):
-        self.assertEqual(endpoint(parse("trojan://p@h.example:8443")), ("h.example", 8443))
+        self.assertEqual(endpoint(parse("trojan://p@h.example:8443?security=tls")), ("h.example", 8443))
         self.assertEqual(endpoint(parse(vmess(tls="tls"))), ("1.2.3.4", 443))
 
 
