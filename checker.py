@@ -119,6 +119,26 @@ def parse(link):
         return None
 
 
+def endpoint(outbound):
+    s = (outbound["settings"].get("vnext") or outbound["settings"]["servers"])[0]
+    return s["address"], s["port"]
+
+
+def reachable(host, port, attempts):
+    """Cheap pre-check: TCP connect to the port, else ICMP ping (covers UDP-only servers like kcp/h3)."""
+    for _ in range(attempts):
+        try:
+            socket.create_connection((host, port), timeout=3).close()
+            return True
+        except OSError:
+            pass
+    try:  # ping exits 0 if any of the probes got an answer
+        return subprocess.run(["ping", "-c", str(attempts), "-W", "2", host], stdout=subprocess.DEVNULL,
+                              stderr=subprocess.DEVNULL, timeout=attempts * 3 + 5).returncode == 0
+    except (OSError, subprocess.TimeoutExpired):  # no ping binary or it hung
+        return False
+
+
 def check(outbound, port, a):
     """True if a request through the key succeeds in any of a.attempts tries."""
     cfg = {"log": {"loglevel": "none"},
@@ -179,7 +199,13 @@ def main():
         if ob:
             uniq.setdefault(json.dumps(ob, sort_keys=True), (link, ob))
     items = list(uniq.values())
-    print(f"{len(links)} keys found, {len(items)} unique encrypted keys to test", file=sys.stderr)
+    print(f"{len(links)} keys found, {len(items)} unique encrypted keys", file=sys.stderr)
+
+    endpoints = sorted({endpoint(ob) for _, ob in items})
+    with ThreadPoolExecutor(a.workers * 4) as ex:  # sockets and ping are cheap next to xray processes
+        up = {e for e, ok in zip(endpoints, ex.map(lambda e: reachable(*e, a.attempts), endpoints)) if ok}
+    items = [(link, ob) for link, ob in items if endpoint(ob) in up]
+    print(f"{len(up)}/{len(endpoints)} servers answer TCP/ICMP, {len(items)} keys go to the Xray test", file=sys.stderr)
 
     with ThreadPoolExecutor(a.workers) as ex:
         results = list(ex.map(lambda i: check(items[i][1], 20000 + i % 40000, a), range(len(items))))

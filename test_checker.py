@@ -1,8 +1,9 @@
 import base64
 import json
+import socket
 import unittest
 
-from checker import extract, parse
+from checker import endpoint, extract, parse, reachable
 
 UUID = "9a0e84f8-4b58-477f-99da-5fac5a2e58e8"
 
@@ -47,6 +48,21 @@ class TestFilter(unittest.TestCase):
         self.assertEqual(ob["settings"]["vnext"][0]["users"][0]["flow"], "xtls-rprx-vision")
         self.assertEqual(ob["streamSettings"]["realitySettings"]["serverName"], "s.example")
         self.assertEqual(ob["streamSettings"]["grpcSettings"], {"serviceName": "svc", "multiMode": False})
+
+
+class TestReachable(unittest.TestCase):
+    def test_tcp(self):
+        with socket.socket() as srv:
+            srv.bind(("127.0.0.1", 0))
+            srv.listen()
+            self.assertTrue(reachable("127.0.0.1", srv.getsockname()[1], 1))
+
+    def test_unresolvable(self):
+        self.assertFalse(reachable("nonexistent.invalid", 443, 1))
+
+    def test_endpoint(self):
+        self.assertEqual(endpoint(parse("trojan://p@h.example:8443")), ("h.example", 8443))
+        self.assertEqual(endpoint(parse(vmess(tls="tls"))), ("1.2.3.4", 443))
 
 
 class TestExtract(unittest.TestCase):
